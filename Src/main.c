@@ -30,10 +30,63 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "string.h"
+#include "stdbool.h"
+#include <stdio.h>
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+/* Текущее состояние работы драйвера линейных двигателей. */
+enum TypeWork {
+  /* Режим инициализации. В данном режиме происходит
+  расчет минимальных и максимальных положений кисти и пальцев протеза. */
+  InitializationMode,
+  
+  /* Режим ожидания. Механические действия не исполняются. */
+  SleepMode,
+  
+  /* Режим установки новых положений. */
+  SettingPositionMode,
+  
+  /* Режим ошибки. Работа невозможна. */
+  ErrorMode
+};
+
+/* Структура для работы с движущимися частями протеза (пальцами и кистью). 
+* Хранит информацию о расчетах энкордера и физическом подключении протеза.
+*/
+typedef struct {
+  /* Текущая позиция пальца в угле. */
+  uint16_t Position;
+  
+  /* Структура GPIO к которой подключен вывод мотора для движения вперед
+  (Движение вперед - при подаче логической единицы на этот пин мотор будет
+  разжимать палец). */
+  GPIO_TypeDef* GPIO_MotorForward;
+  
+  /* Номер пина к которому подключен вывод мотора для движения вперед. */
+  uint16_t GPIO_Motor_PinForward;
+  
+  /* Структура GPIO к которой подключен вывод мотора для движения назад
+  (Движение назад - при подаче логической единицы на этот пин мотор будет
+  сжимать палец). */
+  GPIO_TypeDef* GPIO_MotorBackward;
+  
+  /* Номер пина к которому подключен вывод мотора для движения назад. */
+  uint16_t GPIO_Motor_PinBackward;
+} FingerStruct;
+
+/* Позиции всех движущихся частей протеза.*/
+typedef struct {
+  FingerStruct* PointerFinger;
+  FingerStruct* MiddleFinger;
+  FingerStruct* RingFinder;
+  FingerStruct* LittleFinger;
+  FingerStruct* ThumbFinger;
+  FingerStruct* Brush;
+} HandStruct;
 
 /* USER CODE END PTD */
 
@@ -51,6 +104,12 @@
 
 /* USER CODE BEGIN PV */
 
+/* Основные переменные */
+
+/* Основная конфигурация протеза для осуществления движений. 
+ * На ее основе работает вся прошивка МК. */
+HandStruct* HandConfig;
+
 /* CAN BUS PV Variables */
 CAN_FilterTypeDef sFilterConfig;
 CAN_TxHeaderTypeDef TxHeader;
@@ -61,6 +120,9 @@ uint32_t TxMailbox;
 
 /* ADC PV Variables */
 volatile uint16_t ADC_Data[6];
+
+/* UART data receive */
+uint8_t dataRx;
 
 /* USER CODE END PV */
 
@@ -73,31 +135,101 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/* Объявление функций. */
+
+/** 
+* @brief Выполняет инициализацию конфигурации протеза.
+* Устанавливает пины, к которым подключены моторы пальцев.
+* @retval Структура, в которой содержится конфигурация протеза.
+*/
+HandStruct* Hand_Init();
+
+/** 
+* @brief Выполняет инициализацию конфигурации отдельного пальца. Выполняет 
+*       установку конфигурации пина в соотвесвтующие поля структуры.
+* @param  motorForward Структура GPIO к которой подключен вывод мотора для движения вперед.
+*       (Движение вперед - при подаче логической единицы на этот пин мотор будет разжимать палец).
+* @param  pinForward Номер пина к которому подключен вывод мотора для движения вперед.
+* @param  motorBackward Структура GPIO к которой подключен вывод мотора для движения назад. 
+*       (Движение назад - при подаче логической единицы на этот пин мотор будет сжимать палец).
+* @param  pinBackward Номер пина к которому подключен вывод мотора для движения вперед.
+* @retval Структура, в которой содержится конфигурация отдельного пальца.
+*/
+FingerStruct* Finger_Init(GPIO_TypeDef *motorForward, uint16_t pinForward, GPIO_TypeDef *motorBackward, uint16_t pinBackward);
+
+/* Реализация функций. */
+
+HandStruct* Hand_Init()
+{
+  HandStruct* newHandConfig = (HandStruct*)malloc(sizeof(HandStruct));
+  memset(newHandConfig, 0, sizeof(HandStruct));
+  
+  newHandConfig->PointerFinger = Finger_Init(GPIOB, GPIO_PIN_0, 
+                                             GPIOB, GPIO_PIN_1);
+  
+  return newHandConfig;
+}
+
+FingerStruct* Finger_Init(GPIO_TypeDef *motorForward, uint16_t pinForward, GPIO_TypeDef *motorBackward, uint16_t pinBackward)
+{
+  FingerStruct* configFinger = (FingerStruct*)malloc(sizeof(FingerStruct));
+  memset(configFinger, 0, sizeof(FingerStruct));
+  
+  configFinger->GPIO_MotorForward = motorForward;
+  configFinger->GPIO_Motor_PinForward = pinForward;
+  configFinger->GPIO_MotorBackward = motorBackward;
+  configFinger->GPIO_Motor_PinBackward = pinBackward;
+  
+  return configFinger;
+}
+
+GPIO_TypeDef GPIO_MotorForward;
+  
+  /* Номер пина к которому подключен вывод мотора для движения вперед. */
+  uint16_t GPIO_Motor_PinForward;
+  
+  /* Структура GPIO к которой подключен вывод мотора для движения назад
+  (Движение назад - при подаче логической единицы на этот пин мотор будет
+  сжимать палец). */
+  GPIO_TypeDef GPIO_MotorBackward;
+  
+  /* Номер пина к которому подключен вывод мотора для движения назад. */
+  uint16_t GPIO_Motor_PinBackward;
+
 /**
 * @brief  Остановка движения мотора.
 */
-void Motor_Stop()
+void Finger_Stop(FingerStruct* finger)
 {
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(finger->GPIO_MotorForward, finger->GPIO_Motor_PinForward, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(finger->GPIO_MotorBackward, finger->GPIO_Motor_PinBackward, GPIO_PIN_RESET);
+
+  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
 }
 
 /**
 * @brief  Движение мотора вперед.
 */
-void Motor_Forward()
+void Finger_Forward(FingerStruct* finger)
 {
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(finger->GPIO_MotorForward, finger->GPIO_Motor_PinForward, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(finger->GPIO_MotorBackward, finger->GPIO_Motor_PinBackward, GPIO_PIN_RESET);
+
+//  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+//  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
 }
 
 /**
 * @brief  Движение мотора назад.
 */
-void Motor_Backward()
+void Finger_Backward(FingerStruct* finger)
 {
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(finger->GPIO_MotorForward, finger->GPIO_Motor_PinForward, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(finger->GPIO_MotorBackward, finger->GPIO_Motor_PinBackward, GPIO_PIN_SET);
+  
+//  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+//  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
 }
 
 /**
@@ -117,7 +249,7 @@ void Calculate_Turns(int resistorValue)
 */
 void UART_Transmit_Text(char* text)
 {
-   HAL_UART_Transmit(&huart1, (uint8_t*)text, strlen(text)+1, 0xFFFF);
+  HAL_UART_Transmit(&huart1, (uint8_t*)text, strlen(text)+1, 0xFFFF);
 }
 
 /**
@@ -176,30 +308,30 @@ void CAN_HandlePackage(uint8_t* dataPackage)
 /* USER CODE END 0 */
 
 /**
-* @brief  The application entry point.
-* @retval int
-*/
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
   /* USER CODE BEGIN 1 */
   
   /* USER CODE END 1 */
-  
+
   /* MCU Configuration--------------------------------------------------------*/
-  
+
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-  
+
   /* USER CODE BEGIN Init */
   
   /* USER CODE END Init */
-  
+
   /* Configure the system clock */
   SystemClock_Config();
-  
+
   /* USER CODE BEGIN SysInit */
   /* USER CODE END SysInit */
-  
+
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
@@ -208,13 +340,20 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  // Motor_Stop();
+  
+  HandConfig = Hand_Init();
+  
   HAL_ADC_Start_DMA(&hadc1,(uint32_t*) &ADC_Data,6);
   // HAL_ADC_Stop_DMA(&hadc1);
   // HAL_TIM_Base_Start_IT(&htim2);
   CAN_Init();
-  /* USER CODE END 2 */
   
+  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+  
+  HAL_UART_Receive_IT(&huart1, &dataRx, 1);
+  /* USER CODE END 2 */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -230,27 +369,29 @@ int main(void)
       break;
       // UART_Transmit_Text(" ");
     }
+    
     UART_Transmit_Text("\n");
+    
     HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+
     HAL_Delay(50);
     /* USER CODE END WHILE */
-    
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
 
 /**
-* @brief System Clock Configuration
-* @retval None
-*/
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
-  
+
   /** Initializes the CPU, AHB and APB busses clocks 
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
@@ -267,12 +408,12 @@ void SystemClock_Config(void)
   /** Initializes the CPU, AHB and APB busses clocks 
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-    |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-  
+
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
@@ -330,12 +471,37 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
   HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData);
   CAN_HandlePackage(RxData);
 }
+
+/**
+* @brief  Обработчик принятия сообщения по UART.
+* @param  huart UART, вызвавший прерывание.
+*/
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart == &huart1)
+  {
+    switch(dataRx)
+    {
+    case '0':
+      Finger_Stop(HandConfig->PointerFinger);
+      break;
+    case '1':
+      Finger_Forward(HandConfig->PointerFinger);
+      break;
+    case '2':
+      Finger_Backward(HandConfig->PointerFinger);
+      break;
+    }
+    
+    HAL_UART_Receive_IT(&huart1, &dataRx, 1);
+  }
+}
 /* USER CODE END 4 */
 
 /**
-* @brief  This function is executed in case of error occurrence.
-* @retval None
-*/
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -346,12 +512,12 @@ void Error_Handler(void)
 
 #ifdef  USE_FULL_ASSERT
 /**
-* @brief  Reports the name of the source file and the source line number
-*         where the assert_param error has occurred.
-* @param  file: pointer to the source file name
-* @param  line: assert_param error line source number
-* @retval None
-*/
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 { 
   /* USER CODE BEGIN 6 */
