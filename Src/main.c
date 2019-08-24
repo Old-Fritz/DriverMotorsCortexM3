@@ -80,6 +80,7 @@ typedef struct {
 
 /* Позиции всех движущихся частей протеза.*/
 typedef struct {
+  enum TypeWork CurrentRegime;
   FingerStruct* PointerFinger;
   FingerStruct* MiddleFinger;
   FingerStruct* RingFinder;
@@ -157,7 +158,26 @@ HandStruct* Hand_Init();
 */
 FingerStruct* Finger_Init(GPIO_TypeDef *motorForward, uint16_t pinForward, GPIO_TypeDef *motorBackward, uint16_t pinBackward);
 
+/** 
+* @brief Выполняет инициализацию конфигурации отдельного пальца. Выполняет 
+* @retval None
+*/
+void SendTelemetryByCAN();
+
 /* Реализация функций. */
+
+void SendTelemetryByCAN(HandStruct* handConfig)
+{
+  TxData[0] = handConfig->CurrentRegime;
+  TxData[1] = handConfig->PointerFinger->Position;
+  TxData[2] = handConfig->MiddleFinger->Position;
+  TxData[3] = handConfig->RingFinder->Position;
+  TxData[4] = handConfig->LittleFinger->Position;
+  TxData[5] = handConfig->ThumbFinger->Position;
+  TxData[6] = handConfig->Brush->Position;
+  TxData[7] = handConfig->Brush->Position >> 8;
+  HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+}
 
 HandStruct* Hand_Init()
 {
@@ -182,19 +202,6 @@ FingerStruct* Finger_Init(GPIO_TypeDef *motorForward, uint16_t pinForward, GPIO_
   
   return configFinger;
 }
-
-GPIO_TypeDef GPIO_MotorForward;
-  
-  /* Номер пина к которому подключен вывод мотора для движения вперед. */
-  uint16_t GPIO_Motor_PinForward;
-  
-  /* Структура GPIO к которой подключен вывод мотора для движения назад
-  (Движение назад - при подаче логической единицы на этот пин мотор будет
-  сжимать палец). */
-  GPIO_TypeDef GPIO_MotorBackward;
-  
-  /* Номер пина к которому подключен вывод мотора для движения назад. */
-  uint16_t GPIO_Motor_PinBackward;
 
 /**
 * @brief  Остановка движения мотора.
@@ -303,7 +310,10 @@ void CAN_Init()
 
 void CAN_HandlePackage(uint8_t* dataPackage)
 {
-  
+  if (dataPackage[0] == 0x04)
+  {
+    // Запрос установки новых положений.
+  }
 }
 /* USER CODE END 0 */
 
@@ -345,13 +355,16 @@ int main(void)
   
   HAL_ADC_Start_DMA(&hadc1,(uint32_t*) &ADC_Data,6);
   // HAL_ADC_Stop_DMA(&hadc1);
-  // HAL_TIM_Base_Start_IT(&htim2);
+  
   CAN_Init();
+  HAL_TIM_Base_Start_IT(&htim2);
+  
+  HAL_UART_Receive_IT(&huart1, &dataRx, 1);
   
   //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
   //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
   
-  HAL_UART_Receive_IT(&huart1, &dataRx, 1);
+  
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -360,10 +373,11 @@ int main(void)
   {
     for(int i=0;i<6;i++)
     {
-      float u;
+      //float u;
       char str[9];
-      u =((float)ADC_Data[i])*3/4096;//занесём результат преобразований в переменную
-      sprintf(str,"%.2fv",u);//преобразуем результат в строку
+      //u =((float)ADC_Data[i])*3/4096;//занесём результат преобразований в переменную
+      //sprintf(str,"%.2fv",u);//преобразуем результат в строку
+      sprintf(str, "%d", ADC_Data[i]);//преобразуем результат в строку
       
       UART_Transmit_Text(str);
       break;
@@ -372,9 +386,9 @@ int main(void)
     
     UART_Transmit_Text("\n");
     
-    HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    //HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
 
-    HAL_Delay(50);
+    HAL_Delay(5);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -426,19 +440,16 @@ void SystemClock_Config(void)
   }
 }
 
-/* USER CODE BEGIN 4 */
-/**
-* @brief  Обработчик прерываний таймеров.
-* @param  htim Таймер, вызвавший прерывание.
+/* 
+* @brief Обработчик прерываний таймеров. 
+* htim2 отвечает за отправку телеметрии на контроллер управления.
+* @param htim таймер, вызвавший прерывание.
 */
-void HAL_TIM_PeriodElapsedCallback (TIM_HandleTypeDef *htim)
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
 {
-  /* По прерыванию второго таймера выполняется вызов АЦП преобразования для */
-  /* получения значения с резистивного датчика, отвечающего за анализ угла */
-  /* поворота двигателя. */
   if (htim == &htim2)
   {
-    HAL_ADC_Start_IT(&hadc1);
+    SendTelemetryByCAN(HandConfig);
   }
 }
 
@@ -453,14 +464,14 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc1)
   Calculate_Turns(ADC_Data);
 }
 
-/**
-* @brief  Обработчик прерываний успешной отправки сообщения по CAN.
-* @param  hcan CAN, вызвавший прерывание.
-*/
-void HAL_CAN_TxMailBox0CompleteCallback(CAN_HandleTypeDef *hcan)
-{
-  
-}
+///**
+//* @brief  Обработчик прерываний успешной отправки сообщения по CAN.
+//* @param  hcan CAN, вызвавший прерывание.
+//*/
+//void HAL_CAN_TxMailBox0CompleteCallback(CAN_HandleTypeDef *hcan)
+//{
+//  
+//}
 
 /**
 * @brief  Обработчик принятия сообщения по CAN.
