@@ -17,7 +17,6 @@
 ******************************************************************************
 */
 /* USER CODE END Header */
-
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
@@ -406,7 +405,8 @@ void SystemClock_Config(void)
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
-  /** Initializes the CPU, AHB and APB busses clocks 
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
@@ -419,7 +419,7 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  /** Initializes the CPU, AHB and APB busses clocks 
+  /** Initializes the CPU, AHB and APB buses clocks
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
@@ -440,73 +440,8 @@ void SystemClock_Config(void)
   }
 }
 
-/* 
-* @brief Обработчик прерываний таймеров. 
-* htim2 отвечает за отправку телеметрии на контроллер управления.
-* @param htim таймер, вызвавший прерывание.
-*/
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
-{
-  if (htim == &htim2)
-  {
-    SendTelemetryByCAN(HandConfig);
-  }
-}
+/* USER CODE BEGIN 4 */
 
-/**
-* @brief  Обработчик прерываний АЦП. По прерыванию АЦП 1 извлекается
-значение резистивного датчика и передается в функцию-обработчик для расчет текущего поворота двигателя. 
-* @param  hadc1 АЦП, вызвавшее прерывание.
-*/
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc1)
-{
-  int ADC_Data = HAL_ADC_GetValue(hadc1);
-  Calculate_Turns(ADC_Data);
-}
-
-///**
-//* @brief  Обработчик прерываний успешной отправки сообщения по CAN.
-//* @param  hcan CAN, вызвавший прерывание.
-//*/
-//void HAL_CAN_TxMailBox0CompleteCallback(CAN_HandleTypeDef *hcan)
-//{
-//  
-//}
-
-/**
-* @brief  Обработчик принятия сообщения по CAN.
-* @param  hcan CAN, вызвавший прерывание.
-*/
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
-{
-  HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData);
-  CAN_HandlePackage(RxData);
-}
-
-/**
-* @brief  Обработчик принятия сообщения по UART.
-* @param  huart UART, вызвавший прерывание.
-*/
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart == &huart1)
-  {
-    switch(dataRx)
-    {
-    case '0':
-      Finger_Stop(HandConfig->PointerFinger);
-      break;
-    case '1':
-      Finger_Forward(HandConfig->PointerFinger);
-      break;
-    case '2':
-      Finger_Backward(HandConfig->PointerFinger);
-      break;
-    }
-    
-    HAL_UART_Receive_IT(&huart1, &dataRx, 1);
-  }
-}
 /* USER CODE END 4 */
 
 /**
@@ -530,7 +465,7 @@ void Error_Handler(void)
   * @retval None
   */
 void assert_failed(uint8_t *file, uint32_t line)
-{ 
+{
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
   tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
