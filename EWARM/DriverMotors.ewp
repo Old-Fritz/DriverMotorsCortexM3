@@ -1059,6 +1059,9 @@
         <name>$PROJ_DIR$\..\Src\dma.c</name>
       </file>
       <file>
+        <name>$PROJ_DIR$/../Src/spi.c</name>
+      </file>
+      <file>
         <name>$PROJ_DIR$\..\Src\tim.c</name>
       </file>
       <file>
@@ -1123,6 +1126,9 @@
       </file>
       <file>
         <name>$PROJ_DIR$/../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_can.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$/../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_spi.c</name>
       </file>
       <file>
         <name>$PROJ_DIR$/../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_tim.c</name>
