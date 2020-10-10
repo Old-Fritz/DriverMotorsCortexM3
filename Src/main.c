@@ -54,12 +54,24 @@ enum TypeWork {
   ErrorMode
 };
 
+/* Команды, которые протез может принимать по протоколу */
+enum ProtocolCommand {
+  /* Телеметрия устройства. Протез возвращает позиции пальцев. */
+  Telemetry,
+  
+  /* Запрос установки позиций протеза. */
+  SetPositions
+};
+
 /* Структура для работы с движущимися частями протеза (пальцами и кистью). 
 * Хранит информацию о расчетах энкордера и физическом подключении протеза.
 */
 typedef struct {
-  /* Текущая позиция пальца в угле. */
-  uint16_t Position;
+  /* Текущая позиция пальца в угловом соотношении. */
+  uint8_t Position;
+  
+  /* Ожидаемая позиция пальца в угловом соотношении. */
+  uint8_t RequiredPosition;
   
   /* Структура GPIO к которой подключен вывод мотора для движения вперед
   (Движение вперед - при подаче логической единицы на этот пин мотор будет
@@ -86,9 +98,18 @@ typedef struct {
   FingerStruct* RingFinder;
   FingerStruct* LittleFinger;
   FingerStruct* ThumbFinger;
-  FingerStruct* Brush;
 } HandStruct;
 
+typedef struct {
+  enum ProtocolCommand Command;
+  enum TypeWork CurrentRegime;
+  uint8_t PointerFingerPosition;
+  uint8_t MiddleFingerPosition;
+  uint8_t RingFinderPosition;
+  uint8_t LittleFingerPosition;
+  uint8_t ThumbFingerPosition;
+  uint8_t CRC8;
+} ProtocolStruct;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -104,6 +125,24 @@ typedef struct {
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+unsigned char CRC8_TABLE[] = {
+  0, 94, 188, 226, 97, 63, 221, 131, 194, 156, 126, 32, 163, 253, 31, 65,
+  157, 195, 33, 127, 252, 162, 64, 30, 95, 1, 227, 189, 62, 96, 130, 220,
+  35, 125, 159, 193, 66, 28, 254, 160, 225, 191, 93, 3, 128, 222, 60, 98,
+  190, 224, 2, 92, 223, 129, 99, 61, 124, 34, 192, 158, 29, 67, 161, 255,
+  70, 24, 250, 164, 39, 121, 155, 197, 132, 218, 56, 102, 229, 187, 89, 7,
+  219, 133, 103, 57, 186, 228, 6, 88, 25, 71, 165, 251, 120, 38, 196, 154,
+  101, 59, 217, 135, 4, 90, 184, 230, 167, 249, 27, 69, 198, 152, 122, 36,
+  248, 166, 68, 26, 153, 199, 37, 123, 58, 100, 134, 216, 91, 5, 231, 185,
+  140, 210, 48, 110, 237, 179, 81, 15, 78, 16, 242, 172, 47, 113, 147, 205,
+  17, 79, 173, 243, 112, 46, 204, 146, 211, 141, 111, 49, 178, 236, 14, 80,
+  175, 241, 19, 77, 206, 144, 114, 44, 109, 51, 209, 143, 12, 82, 176, 238,
+  50, 108, 142, 208, 83, 13, 239, 177, 240, 174, 76, 18, 145, 207, 45, 115,
+  202, 148, 118, 40, 171, 245, 23, 73, 8, 86, 180, 234, 105, 55, 213, 139,
+  87, 9, 235, 181, 54, 104, 138, 212, 149, 203, 41, 119, 244, 170, 72, 22,
+  233, 183, 85, 11, 136, 214, 52, 106, 43, 117, 151, 201, 74, 20, 246, 168,
+  116, 42, 200, 150, 21, 75, 169, 247, 182, 232, 10, 84, 215, 137, 107, 53
+};
 
 /* Основные переменные */
 
@@ -119,11 +158,15 @@ uint8_t TxData[8];
 uint8_t RxData[8];
 uint32_t TxMailbox;
 
+/* UART PV Variables */
+uint32_t uartLastReceiveTimeMs;
+uint8_t uartPositionProtocol;
+
 /* ADC PV Variables */
 volatile uint16_t ADC_Data[6];
 
 /* UART data receive */
-uint8_t dataRx;
+ProtocolStruct request;
 
 /* USER CODE END PV */
 
@@ -159,10 +202,18 @@ HandStruct* Hand_Init();
 FingerStruct* Finger_Init(GPIO_TypeDef *motorForward, uint16_t pinForward, GPIO_TypeDef *motorBackward, uint16_t pinBackward);
 
 /** 
-* @brief Выполняет инициализацию конфигурации отдельного пальца. Выполняет 
+* @brief Выполняет инициализацию конфигурации отдельного пальца. 
 * @retval None
 */
 void SendTelemetryByCAN();
+
+/**
+  * @brief  CRC8 calculate function
+  * @param  data Pointer to data
+  * @param  data length
+  * @retval crc8
+*/
+unsigned char CalculateCRC8(unsigned char *data, unsigned int length);
 
 /* Реализация функций. */
 
@@ -174,8 +225,6 @@ void SendTelemetryByCAN(HandStruct* handConfig)
   TxData[3] = handConfig->RingFinder->Position;
   TxData[4] = handConfig->LittleFinger->Position;
   TxData[5] = handConfig->ThumbFinger->Position;
-  TxData[6] = handConfig->Brush->Position;
-  TxData[7] = handConfig->Brush->Position >> 8;
   HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
 }
 
@@ -186,6 +235,15 @@ HandStruct* Hand_Init()
   
   newHandConfig->PointerFinger = Finger_Init(GPIOB, GPIO_PIN_0, 
                                              GPIOB, GPIO_PIN_1);
+  newHandConfig->LittleFinger = Finger_Init(GPIOB, GPIO_PIN_0, 
+                                             GPIOB, GPIO_PIN_1);
+  newHandConfig->MiddleFinger = Finger_Init(GPIOB, GPIO_PIN_0, 
+                                             GPIOB, GPIO_PIN_1);
+  newHandConfig->RingFinder = Finger_Init(GPIOB, GPIO_PIN_0, 
+                                             GPIOB, GPIO_PIN_1);
+  newHandConfig->ThumbFinger = Finger_Init(GPIOB, GPIO_PIN_0, 
+                                             GPIOB, GPIO_PIN_1);
+  
   
   return newHandConfig;
 }
@@ -250,16 +308,6 @@ void Calculate_Turns(int resistorValue)
 }
 
 /**
-* @brief  Выполняет расчет текущего кол-ва оборотов устройства.
-* @param  resistorValue Значение, полученное 
-* с резистивного датчика, определяющего поворот мотора.
-*/
-void UART_Transmit_Text(char* text)
-{
-  HAL_UART_Transmit(&huart1, (uint8_t*)text, strlen(text)+1, 0xFFFF);
-}
-
-/**
 * @brief Выполняет необходимую программную иницилизацию CAN и 
 * переменных для работы с ней.
 * @retval None
@@ -308,12 +356,15 @@ void CAN_Init()
   TxData[7] = 0;
 }
 
-void CAN_HandlePackage(uint8_t* dataPackage)
+unsigned char CalculateCRC8(unsigned char *data, unsigned int length)
 {
-  if (dataPackage[0] == 0x04)
+  unsigned char result = 0;
+  for (int i = 0; i < length; i++)
   {
-    // Запрос установки новых положений.
+    result = CRC8_TABLE[result ^ data[i]];
   }
+  
+  return result;
 }
 /* USER CODE END 0 */
 
@@ -360,11 +411,17 @@ int main(void)
   CAN_Init();
   HAL_TIM_Base_Start_IT(&htim2);
   
-  HAL_UART_Receive_IT(&huart1, &dataRx, 1);
+  uartLastReceiveTimeMs = 0;
+  
+  HAL_UART_Receive_IT(&huart1, ((uint8_t*)&request), 1);
   
   //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
   //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+  HandConfig->CurrentRegime = InitializationMode;
   
+  HAL_Delay(10000);
+  
+  HandConfig->CurrentRegime = SleepMode;
   
   /* USER CODE END 2 */
 
@@ -372,24 +429,21 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    for(int i=0;i<6;i++)
-    {
+    //for(int i=0;i<6;i++)
+    //{
       //float u;
-      char str[9];
+      //char str[9];
       //u =((float)ADC_Data[i])*3/4096;//занесём результат преобразований в переменную
       //sprintf(str,"%.2fv",u);//преобразуем результат в строку
-      sprintf(str, "%d", ADC_Data[i]);//преобразуем результат в строку
+      //sprintf(str, "%d", ADC_Data[i]);//преобразуем результат в строку
       
-      UART_Transmit_Text(str);
-      break;
+      //UART_Transmit_Text(str);
+      //UART_Transmit_Text("\n");
+      //break;
       // UART_Transmit_Text(" ");
-    }
-    
-    UART_Transmit_Text("\n");
+    //}
     
     //HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-
-    HAL_Delay(5);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -443,7 +497,70 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+  
+  uint32_t receiveTimeMs = HAL_GetTick();
+  
+  if (uartPositionProtocol != 0 && abs(receiveTimeMs - uartLastReceiveTimeMs) > 500)
+  {
+    uartLastReceiveTimeMs = receiveTimeMs;
+    request.Command = (enum ProtocolCommand)(*(((uint8_t*)&request) + uartPositionProtocol));
+    uartPositionProtocol = 1;
+    HAL_UART_Receive_IT(&huart1, ((uint8_t*)((uint8_t*)(&request) + uartPositionProtocol)), 1);
+    return;
+  }
+  
+  uartLastReceiveTimeMs = receiveTimeMs;
+  
+  if (uartPositionProtocol == 7)
+  {
+    uartPositionProtocol = 0;
+    unsigned char realCRC8 = CalculateCRC8(((unsigned char*)&request), 7);
+    if (false && realCRC8 != request.CRC8)
+    {
+      // Ожидаем следующие 8 байт и обнуляем позицию
+      HAL_UART_Receive_IT(&huart1, ((uint8_t*)&request), 1);
+      return;
+    }
+    
+    // Если это команда установки, то обновляем требуемые позиции.
+    if (request.Command == SetPositions) {
+      HandConfig->LittleFinger->RequiredPosition = request.LittleFingerPosition;
+      HandConfig->MiddleFinger->RequiredPosition = request.MiddleFingerPosition;
+      HandConfig->PointerFinger->RequiredPosition = request.PointerFingerPosition;
+      HandConfig->RingFinder->RequiredPosition = request.RingFinderPosition;
+      HandConfig->ThumbFinger->RequiredPosition = request.ThumbFingerPosition;
+    }
+    
+    // Отправляем телеметрию на каждый запрос в любом случае.
+    ProtocolStruct response;
+    response.Command = Telemetry;
+    response.CurrentRegime = HandConfig->CurrentRegime;
+    response.LittleFingerPosition = HandConfig->LittleFinger->Position;
+    response.MiddleFingerPosition = HandConfig->MiddleFinger->Position;
+    response.PointerFingerPosition = HandConfig->PointerFinger->Position;
+    response.RingFinderPosition = HandConfig->RingFinder->Position;
+    response.ThumbFingerPosition = HandConfig->ThumbFinger->Position;
+    response.CRC8 = CalculateCRC8(((unsigned char*)&response), 7);
+    HAL_UART_Transmit(&huart1, ((uint8_t*)&response), 8, 0xFFFF);
+  }
+  else
+  {
+    uartPositionProtocol++;
+  }
+  
+  
+  // Ожидаем следующие 8 байт
+  HAL_UART_Receive_IT(&huart1, ((uint8_t*)((uint8_t*)(&request) + uartPositionProtocol)), 1);
+}
 
+void CAN_HandlePackage(uint8_t* dataPackage)
+{
+  if (dataPackage[0] == 0x04)
+  {
+    // Запрос установки новых положений.
+  }
+}
 /* USER CODE END 4 */
 
 /**
@@ -454,7 +571,7 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
-  
+  HandConfig->CurrentRegime = ErrorMode;
   /* USER CODE END Error_Handler_Debug */
 }
 
