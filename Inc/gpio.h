@@ -33,11 +33,28 @@
 
 /* USER CODE BEGIN Private defines */
 
+typedef enum ControlType {
+  PLUS,
+  MINUS
+} ControlType;
+
 /* USER CODE END Private defines */
 
 void MX_GPIO_Init(void);
 
 /* USER CODE BEGIN Prototypes */
+
+// Set enabled state for specific control
+void EnableControl(uint8_t controlId, ControlType type);
+// Set disabled state for specific control
+void DisableControl(uint8_t controlId, ControlType type);
+// Return current state for specific control ( 0 - disabled, 1 - enabled )
+uint8_t GetControlState(uint8_t controlId, ControlType type);
+// Reset specific control to init state
+void ResetControl(uint8_t controlId, ControlType type);
+// Reset all controls to init state
+void ResetControlAll();
+
 
 /* USER CODE END Prototypes */
 

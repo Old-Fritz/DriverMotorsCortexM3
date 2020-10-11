@@ -27,6 +27,22 @@
 /* Configure GPIO                                                             */
 /*----------------------------------------------------------------------------*/
 /* USER CODE BEGIN 1 */
+#define CONTROL_M1_PIN_PLUS     GPIO_PIN_0
+#define CONTROL_M1_PIN_MINUS    GPIO_PIN_1
+#define CONTROL_M2_PIN_PLUS     GPIO_PIN_2
+#define CONTROL_M2_PIN_MINUS    GPIO_PIN_3
+#define CONTROL_M3_PIN_PLUS     GPIO_PIN_4
+#define CONTROL_M3_PIN_MINUS    GPIO_PIN_5
+#define CONTROL_M4_PIN_PLUS     GPIO_PIN_6    
+#define CONTROL_M4_PIN_MINUS    GPIO_PIN_7    
+#define CONTROL_M5_PIN_PLUS     GPIO_PIN_8    
+#define CONTROL_M5_PIN_MINUS    GPIO_PIN_9
+#define CONTROL_M6_PIN_PLUS     GPIO_PIN_10
+#define CONTROL_M6_PIN_MINUS    GPIO_PIN_11
+
+#define CONTROL_GPIO_TYPE_DEF   GPIOB
+
+#define CONTROL_COUNT 6
 
 /* USER CODE END 1 */
 
@@ -91,7 +107,68 @@ void MX_GPIO_Init(void)
 
 }
 
+static uint16_t GetControlPin(uint8_t controlId, ControlType type)
+{
+  switch(controlId)
+  {
+  case 1:
+    return type == MINUS ? CONTROL_M1_PIN_MINUS : CONTROL_M1_PIN_PLUS;
+  case 2:
+    return type == MINUS ? CONTROL_M2_PIN_MINUS : CONTROL_M2_PIN_PLUS;
+  case 3:
+    return type == MINUS ? CONTROL_M3_PIN_MINUS : CONTROL_M3_PIN_PLUS;
+  case 4:
+    return type == MINUS ? CONTROL_M4_PIN_MINUS : CONTROL_M4_PIN_PLUS;
+  case 5:
+    return type == MINUS ? CONTROL_M5_PIN_MINUS : CONTROL_M5_PIN_PLUS;
+  case 6:
+    return type == MINUS ? CONTROL_M6_PIN_MINUS : CONTROL_M6_PIN_PLUS;
+  default:
+    return 0;
+  }
+}
+
+static void SetState(uint8_t controlId, ControlType type, GPIO_PinState  state)
+{
+  uint16_t pin = GetControlPin(controlId, type);
+  HAL_GPIO_WritePin(CONTROL_GPIO_TYPE_DEF, pin, state);
+}
+
 /* USER CODE BEGIN 2 */
+void EnableControl(uint8_t controlId, ControlType type)
+{
+  GPIO_PinState newState = type == MINUS ? GPIO_PIN_RESET :  GPIO_PIN_SET;
+  SetState(controlId, type, newState);
+}
+
+void DisableControl(uint8_t controlId, ControlType type)
+{
+  GPIO_PinState newState = type == MINUS ? GPIO_PIN_SET :  GPIO_PIN_RESET;
+  SetState(controlId, type, newState);
+}
+
+uint8_t GetControlState(uint8_t controlId, ControlType type)
+{
+  uint16_t pin = GetControlPin(controlId, type);
+  GPIO_PinState enableState = type == MINUS ? GPIO_PIN_RESET :  GPIO_PIN_SET;
+  GPIO_PinState currentState = HAL_GPIO_ReadPin(CONTROL_GPIO_TYPE_DEF, pin);
+  return currentState == enableState;
+}
+void ResetControl(uint8_t controlId, ControlType type)
+{
+  uint16_t pin = GetControlPin(controlId, type);
+  HAL_GPIO_DeInit(CONTROL_GPIO_TYPE_DEF, pin);
+}
+void ResetControlAll()
+{
+  for( int i = 0; i < CONTROL_COUNT; i++ )
+  {
+    uint16_t pin = GetControlPin(i, PLUS);
+    HAL_GPIO_DeInit(CONTROL_GPIO_TYPE_DEF, pin);
+    pin = GetControlPin(i, MINUS);
+    HAL_GPIO_DeInit(CONTROL_GPIO_TYPE_DEF, pin);
+  }
+}
 
 /* USER CODE END 2 */
 
