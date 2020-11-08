@@ -42,11 +42,9 @@ void MX_SPI2_Init(void);
 
 /* USER CODE BEGIN Prototypes */
 
-void SPI1_SendByte(uint8_t Byte);
-void SPI2_SendByte(uint8_t Byte);
+void SPI_SendBytes(uint8_t spiIndex, uint8_t* data, uint16_t size, uint8_t blocking);
+void SPI_ReceiveBytes(uint8_t spiIndex, uint8_t* buffer, uint16_t size, uint8_t blocking);
 
-uint8_t SPI1_ReceiveByte();
-uint8_t SPI2_ReceiveByte();
 
 /* USER CODE END Prototypes */
 

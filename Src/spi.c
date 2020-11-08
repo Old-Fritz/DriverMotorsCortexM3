@@ -200,41 +200,67 @@ void error()
   HAL_Delay(200);
 }
 
-void SPI1_SendByte(uint8_t Byte)
+static SPI_HandleTypeDef* GetSpiHandle(uint8_t spiIndex)
 {
-  if(HAL_SPI_Transmit(&hspi1,(uint8_t*) &Byte,1,0x200)!=HAL_OK) 
+  switch(spiIndex)
+  {
+  case 1:
+    return &hspi1;
+  case 2:
+    return &hspi2;
+  default:
+    return NULL;
+  }
+}
+
+void SPI_SendBytes(uint8_t spiIndex, uint8_t* data, uint16_t size, uint8_t blocking)
+{
+  SPI_HandleTypeDef* hspi = GetSpiHandle(spiIndex);
+  if (!hspi)
+  {
+    error();
+    return;
+  }
+  
+  HAL_StatusTypeDef result;
+  if( blocking )
+  {
+    result = HAL_SPI_Transmit(hspi, data, size, 0x200);
+  }
+  else
+  {
+    result = HAL_SPI_Transmit_IT(hspi, data, size);
+  }
+  if (result != HAL_OK)
+  {
+    error();
+  }
+}
+void SPI_ReceiveBytes(uint8_t spiIndex, uint8_t* buffer, uint16_t size, uint8_t blocking)
+{
+  SPI_HandleTypeDef* hspi = GetSpiHandle(spiIndex);
+  if (!hspi)
+  {
+    error();
+    return;
+  }
+  
+  HAL_StatusTypeDef result;
+  if( blocking )
+  {
+    result = HAL_SPI_Receive(hspi, buffer, size, 0x200);
+  }
+  else
+  {
+    result = HAL_SPI_Receive_IT(hspi, buffer, size);
+  }
+  if (result != HAL_OK)
   {
     error();
   }
 }
 
-void SPI2_SendByte(uint8_t Byte)
-{
-  if(HAL_SPI_Transmit(&hspi2,(uint8_t*) &Byte,1,0x200)!=HAL_OK) 
-  {
-    error();
-  }
-}
 
-uint8_t SPI1_ReceiveByte()
-{
-  uint8_t receivedbyte = 0;
-  if(HAL_SPI_Receive(&hspi1,(uint8_t*) &receivedbyte,1,0x200)!=HAL_OK) 
-  {
-    error();
-  }
-  return receivedbyte;
-}
-
-uint8_t SPI2_ReceiveByte()
-{
-  uint8_t receivedbyte = 0;
-  if(HAL_SPI_Receive(&hspi2,(uint8_t*) &receivedbyte,1,0x200)!=HAL_OK) 
-  {
-    error();
-  }
-  return receivedbyte;
-}
 
 /* USER CODE END 1 */
 
