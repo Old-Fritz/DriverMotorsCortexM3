@@ -168,6 +168,11 @@ volatile uint16_t ADC_Data[6];
 /* UART data receive */
 ProtocolStruct request;
 
+/* SPI data receive */
+ProtocolStruct requestSPI;
+uint8_t spiReceiveIndex;
+uint8_t spiTransmitIndex;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -416,6 +421,10 @@ int main(void)
   
   HAL_UART_Receive_IT(&huart1, ((uint8_t*)&request), 1);
   
+  spiReceiveIndex = 1; // Not sure what interface we will use
+  spiTransmitIndex = 1; // Not sure what interface we will use
+  SPI_ReceiveBytes(spiReceiveIndex, ((uint8_t*)&requestSPI), 8, false);
+  
   //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
   //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
   HandConfig->CurrentRegime = InitializationMode;
@@ -498,6 +507,44 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+ProtocolStruct BuildResponse()
+{
+  ProtocolStruct response;
+  response.Command = Telemetry;
+  response.CurrentRegime = HandConfig->CurrentRegime;
+  response.LittleFingerPosition = HandConfig->LittleFinger->Position;
+  response.MiddleFingerPosition = HandConfig->MiddleFinger->Position;
+  response.PointerFingerPosition = HandConfig->PointerFinger->Position;
+  response.RingFinderPosition = HandConfig->RingFinder->Position;
+  response.ThumbFingerPosition = HandConfig->ThumbFinger->Position;
+  response.CRC8 = CalculateCRC8(((unsigned char*)&response), 7);
+  
+  return response;
+}
+
+uint8_t HandleRequest(ProtocolStruct protocolRequest)
+{
+  unsigned char realCRC8 = CalculateCRC8(((unsigned char*)&protocolRequest), 7);
+  if (false && realCRC8 != protocolRequest.CRC8)
+  {
+    return 0;
+  }
+  
+  // ≈сли это команда установки, то обновл€ем требуемые позиции.
+  if (protocolRequest.Command == SetPositions) 
+  {
+    HandConfig->LittleFinger->RequiredPosition = protocolRequest.LittleFingerPosition;
+    HandConfig->MiddleFinger->RequiredPosition = protocolRequest.MiddleFingerPosition;
+    HandConfig->PointerFinger->RequiredPosition = protocolRequest.PointerFingerPosition;
+    HandConfig->RingFinder->RequiredPosition = protocolRequest.RingFinderPosition;
+    HandConfig->ThumbFinger->RequiredPosition = protocolRequest.ThumbFingerPosition;
+  }
+  
+  return 1;
+}
+
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   
   uint32_t receiveTimeMs = HAL_GetTick();
@@ -516,33 +563,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (uartPositionProtocol == 7)
   {
     uartPositionProtocol = 0;
-    unsigned char realCRC8 = CalculateCRC8(((unsigned char*)&request), 7);
-    if (false && realCRC8 != request.CRC8)
+    if (!HandleRequest(request))
     {
       // ќжидаем следующие 8 байт и обнул€ем позицию
       HAL_UART_Receive_IT(&huart1, ((uint8_t*)&request), 1);
       return;
     }
     
-    // ≈сли это команда установки, то обновл€ем требуемые позиции.
-    if (request.Command == SetPositions) {
-      HandConfig->LittleFinger->RequiredPosition = request.LittleFingerPosition;
-      HandConfig->MiddleFinger->RequiredPosition = request.MiddleFingerPosition;
-      HandConfig->PointerFinger->RequiredPosition = request.PointerFingerPosition;
-      HandConfig->RingFinder->RequiredPosition = request.RingFinderPosition;
-      HandConfig->ThumbFinger->RequiredPosition = request.ThumbFingerPosition;
-    }
-    
     // ќтправл€ем телеметрию на каждый запрос в любом случае.
-    ProtocolStruct response;
-    response.Command = Telemetry;
-    response.CurrentRegime = HandConfig->CurrentRegime;
-    response.LittleFingerPosition = HandConfig->LittleFinger->Position;
-    response.MiddleFingerPosition = HandConfig->MiddleFinger->Position;
-    response.PointerFingerPosition = HandConfig->PointerFinger->Position;
-    response.RingFinderPosition = HandConfig->RingFinder->Position;
-    response.ThumbFingerPosition = HandConfig->ThumbFinger->Position;
-    response.CRC8 = CalculateCRC8(((unsigned char*)&response), 7);
+    ProtocolStruct response = BuildResponse();
     HAL_UART_Transmit(&huart1, ((uint8_t*)&response), 8, 0xFFFF);
   }
   else
@@ -555,8 +584,29 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   HAL_UART_Receive_IT(&huart1, ((uint8_t*)((uint8_t*)(&request) + uartPositionProtocol)), 1);
 }
 
-void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
+  // recieved by correct SPI
+  if( (hspi->Instance == SPI1 && spiReceiveIndex == 1) 
+       || (hspi->Instance == SPI2 && spiReceiveIndex == 2))
+  {
+    // reach end of transmition
+    if(hspi->TxXferCount == 0)
+    {
+      if (!HandleRequest(requestSPI))
+      {
+        // Wait for next 8 bytes
+        SPI_ReceiveBytes(spiReceiveIndex, ((uint8_t*)&requestSPI), 8, false);
+        return;
+      }
+      // Send telemetry on any request
+      ProtocolStruct response = BuildResponse();
+      SPI_SendBytes(spiTransmitIndex, ((uint8_t*)&response), 8, false);
+      
+      // Wait for next 8 bytes
+      SPI_ReceiveBytes(spiReceiveIndex, ((uint8_t*)&requestSPI), 8, false);
+    }
+  }
 }
 
 void CAN_HandlePackage(uint8_t* dataPackage)
