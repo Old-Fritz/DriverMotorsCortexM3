@@ -400,6 +400,7 @@ int main(void)
   MX_CAN_Init();
   MX_TIM2_Init();
   MX_USART1_UART_Init();
+  MX_SPI1_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   
@@ -552,6 +553,10 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   
   // ќжидаем следующие 8 байт
   HAL_UART_Receive_IT(&huart1, ((uint8_t*)((uint8_t*)(&request) + uartPositionProtocol)), 1);
+}
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
+{
 }
 
 void CAN_HandlePackage(uint8_t* dataPackage)
