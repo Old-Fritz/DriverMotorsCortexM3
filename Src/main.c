@@ -170,8 +170,7 @@ ProtocolStruct request;
 
 /* SPI data receive */
 ProtocolStruct requestSPI;
-uint8_t spiReceiveIndex;
-uint8_t spiTransmitIndex;
+uint8_t spiIndex;
 
 /* USER CODE END PV */
 
@@ -421,9 +420,8 @@ int main(void)
   
   HAL_UART_Receive_IT(&huart1, ((uint8_t*)&request), 1);
   
-  spiReceiveIndex = 1; // Not sure what interface we will use
-  spiTransmitIndex = 1; // Not sure what interface we will use
-  SPI_ReceiveBytes(spiReceiveIndex, ((uint8_t*)&requestSPI), 8, false);
+  spiIndex = 1; // Not sure what interface we will use
+  SPI_ReceiveBytes(spiIndex, ((uint8_t*)&requestSPI), 8, false);
   
   //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
   //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
@@ -587,8 +585,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
   // recieved by correct SPI
-  if( (hspi->Instance == SPI1 && spiReceiveIndex == 1) 
-       || (hspi->Instance == SPI2 && spiReceiveIndex == 2))
+  if( (hspi->Instance == SPI1 && spiIndex == 1) 
+       || (hspi->Instance == SPI2 && spiIndex == 2))
   {
     // reach end of transmition
     if(hspi->TxXferCount == 0)
@@ -596,15 +594,14 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
       if (!HandleRequest(requestSPI))
       {
         // Wait for next 8 bytes
-        SPI_ReceiveBytes(spiReceiveIndex, ((uint8_t*)&requestSPI), 8, false);
+        SPI_ReceiveBytes(spiIndex, ((uint8_t*)&requestSPI), 8, false);
         return;
       }
-      // Send telemetry on any request
+      // Send telemetry on any request and for next 8 bytes
+
       ProtocolStruct response = BuildResponse();
-      SPI_SendBytes(spiTransmitIndex, ((uint8_t*)&response), 8, false);
       
-      // Wait for next 8 bytes
-      SPI_ReceiveBytes(spiReceiveIndex, ((uint8_t*)&requestSPI), 8, false);
+      SPI_SendReceiveBytes(spiIndex, ((uint8_t*)&response), ((uint8_t*)&requestSPI), 8, false);
     }
   }
 }

@@ -260,6 +260,31 @@ void SPI_ReceiveBytes(uint8_t spiIndex, uint8_t* buffer, uint16_t size, uint8_t 
   }
 }
 
+void SPI_SendReceiveBytes(uint8_t spiIndex, uint8_t* sendData, uint8_t* receiveData, uint16_t size, uint8_t blocking)
+{
+  SPI_HandleTypeDef* hspi = GetSpiHandle(spiIndex);
+  if (!hspi)
+  {
+    error();
+    return;
+  }
+  
+  HAL_StatusTypeDef result;
+  if( blocking )
+  {
+    result = HAL_SPI_TransmitReceive(hspi, sendData, receiveData, size, 0x200);
+  }
+  else
+  {
+    result = HAL_SPI_TransmitReceive_IT(hspi, sendData, receiveData, size);
+  }
+  if (result != HAL_OK)
+  {
+    error();
+  }
+}
+
+
 
 
 /* USER CODE END 1 */

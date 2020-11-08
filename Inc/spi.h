@@ -44,6 +44,7 @@ void MX_SPI2_Init(void);
 
 void SPI_SendBytes(uint8_t spiIndex, uint8_t* data, uint16_t size, uint8_t blocking);
 void SPI_ReceiveBytes(uint8_t spiIndex, uint8_t* buffer, uint16_t size, uint8_t blocking);
+void SPI_SendReceiveBytes(uint8_t spiIndex, uint8_t* sendData, uint8_t* receiveData, uint16_t size, uint8_t blocking);
 
 
 /* USER CODE END Prototypes */
