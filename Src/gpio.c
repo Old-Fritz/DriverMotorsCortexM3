@@ -107,6 +107,7 @@ void MX_GPIO_Init(void)
 
 }
 
+/* USER CODE BEGIN 2 */
 static uint16_t GetControlPin(uint8_t controlId, ControlType type)
 {
   switch(controlId)
@@ -134,7 +135,6 @@ static void SetState(uint8_t controlId, ControlType type, GPIO_PinState  state)
   HAL_GPIO_WritePin(CONTROL_GPIO_TYPE_DEF, pin, state);
 }
 
-/* USER CODE BEGIN 2 */
 void EnableControl(uint8_t controlId, ControlType type)
 {
   GPIO_PinState newState = type == MINUS ? GPIO_PIN_RESET :  GPIO_PIN_SET;
